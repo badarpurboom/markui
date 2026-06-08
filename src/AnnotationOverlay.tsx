@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
  * Lightweight visual feedback overlay for any React app.
  *
  * - Toggle "Annotate" mode → left-click any element to mark it red + add a comment.
+ * - Edit or delete existing markers by clicking them.
  * - "Copy for agent" copies all annotations as text you can paste to your coding agent.
  *
  * Drop it once near your app root (typically behind a dev-only flag) — no external deps.
@@ -77,6 +78,8 @@ const CORNERS: Record<NonNullable<AnnotationOverlayProps['position']>, React.CSS
   'top-left': { top: 16, left: 16 },
 };
 
+const STORAGE_KEY = 'react-annotate-overlay-data';
+
 export function AnnotationOverlay({
   position = 'bottom-right',
   placeholder = 'What should change here? (Ctrl+Enter to save)',
@@ -84,16 +87,51 @@ export function AnnotationOverlay({
   onCopy,
 }: AnnotationOverlayProps = {}) {
   const [active, setActive] = useState(false);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  
   const [pending, setPending] = useState<{
+    id?: number; // If editing an existing annotation
     selector: string;
     text: string;
     x: number;
     y: number;
   } | null>(null);
+  
   const [draft, setDraft] = useState('');
-  const idRef = useRef(1);
+  const idRef = useRef(annotations.reduce((max, a) => Math.max(max, a.id), 0) + 1);
   const hoveredRef = useRef<HTMLElement | null>(null);
+
+  // Save to localStorage whenever annotations change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(annotations));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [annotations]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Escape closes dialog or stops annotating
+      if (e.key === 'Escape') {
+        if (pending) {
+          setPending(null);
+        } else if (active) {
+          setActive(false);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [active, pending]);
 
   const isOverlayNode = useCallback((el: EventTarget | null) => {
     return el instanceof HTMLElement && !!el.closest('[data-annot-ui]');
@@ -101,7 +139,7 @@ export function AnnotationOverlay({
 
   // Hover highlight while in active mode.
   useEffect(() => {
-    if (!active) return;
+    if (!active || pending) return; // Don't highlight if dialog is open
     const onMove = (e: MouseEvent) => {
       const el = e.target as HTMLElement;
       if (isOverlayNode(el)) return;
@@ -117,11 +155,11 @@ export function AnnotationOverlay({
       document.removeEventListener('mousemove', onMove, true);
       if (hoveredRef.current) hoveredRef.current.style.outline = '';
     };
-  }, [active, isOverlayNode]);
+  }, [active, pending, isOverlayNode]);
 
   // Capture left-clicks while active.
   useEffect(() => {
-    if (!active) return;
+    if (!active || pending) return;
     const onClick = (e: MouseEvent) => {
       if (isOverlayNode(e.target)) return;
       e.preventDefault();
@@ -137,23 +175,46 @@ export function AnnotationOverlay({
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
-  }, [active, isOverlayNode]);
+  }, [active, pending, isOverlayNode]);
 
   const saveComment = () => {
     if (!pending || !draft.trim()) return;
-    setAnnotations((prev) => [
-      ...prev,
-      {
-        id: idRef.current++,
-        selector: pending.selector,
-        text: pending.text,
-        comment: draft.trim(),
-        x: pending.x,
-        y: pending.y,
-      },
-    ]);
+    
+    if (pending.id) {
+      // Edit existing
+      setAnnotations((prev) => 
+        prev.map(a => a.id === pending.id ? { ...a, comment: draft.trim() } : a)
+      );
+    } else {
+      // Add new
+      setAnnotations((prev) => [
+        ...prev,
+        {
+          id: idRef.current++,
+          selector: pending.selector,
+          text: pending.text,
+          comment: draft.trim(),
+          x: pending.x,
+          y: pending.y,
+        },
+      ]);
+    }
     setPending(null);
     setDraft('');
+  };
+
+  const deleteComment = () => {
+    if (!pending || !pending.id) return;
+    setAnnotations((prev) => prev.filter(a => a.id !== pending.id));
+    setPending(null);
+    setDraft('');
+  };
+
+  const clearAll = () => {
+    if (confirm('Are you sure you want to clear all annotations?')) {
+      setAnnotations([]);
+      setPending(null);
+    }
   };
 
   const copyForAgent = async () => {
@@ -180,36 +241,65 @@ export function AnnotationOverlay({
     fontSize: 13,
   };
 
+  const glassStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.85)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: '1px solid rgba(229, 231, 235, 0.5)',
+    boxShadow: '0 8px 32px rgba(0,0,0,.15)',
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    border: 'none',
+    borderRadius: 8,
+    padding: '8px 12px',
+    cursor: 'pointer',
+    fontWeight: 500,
+    transition: 'all 0.2s',
+  };
+
   return (
     <div data-annot-ui>
       {/* Toolbar */}
-      <div style={{ ...panel, ...CORNERS[position], display: 'flex', gap: 8 }}>
+      <div style={{ ...panel, ...CORNERS[position], display: 'flex', gap: 8, alignItems: 'center' }}>
         {annotations.length > 0 && (
-          <button
-            onClick={copyForAgent}
-            style={{
-              background: '#111827',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 8,
-              padding: '8px 12px',
-              cursor: 'pointer',
-              boxShadow: '0 2px 8px rgba(0,0,0,.25)',
-            }}
-          >
-            Copy for agent ({annotations.length})
-          </button>
+          <>
+            <button
+              onClick={clearAll}
+              style={{
+                ...buttonStyle,
+                background: 'rgba(255, 255, 255, 0.85)',
+                backdropFilter: 'blur(8px)',
+                color: '#ef4444',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                boxShadow: '0 2px 8px rgba(0,0,0,.1)',
+              }}
+            >
+              Clear
+            </button>
+            <button
+              onClick={copyForAgent}
+              style={{
+                ...buttonStyle,
+                background: '#111827',
+                color: '#fff',
+                boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+              }}
+            >
+              Copy for agent ({annotations.length})
+            </button>
+          </>
         )}
         <button
-          onClick={() => setActive((v) => !v)}
+          onClick={() => {
+            setActive((v) => !v);
+            if (pending) setPending(null);
+          }}
           style={{
+            ...buttonStyle,
             background: active ? '#ef4444' : '#2563eb',
             color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            padding: '8px 12px',
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0,0,0,.25)',
+            boxShadow: '0 4px 12px rgba(0,0,0,.25)',
           }}
         >
           {active ? 'Annotating… (click to stop)' : 'Annotate'}
@@ -221,43 +311,57 @@ export function AnnotationOverlay({
         <div
           key={a.id}
           title={a.comment}
+          onClick={() => {
+            setPending({
+              id: a.id,
+              selector: a.selector,
+              text: a.text,
+              x: a.x,
+              y: a.y,
+            });
+            setDraft(a.comment);
+            setActive(true); // Ensure active is on so we don't trigger regular click
+          }}
           style={{
             ...panel,
-            top: a.y - 10,
-            left: a.x - 10,
-            width: 20,
-            height: 20,
+            top: a.y - 12,
+            left: a.x - 12,
+            width: 24,
+            height: 24,
             borderRadius: '50%',
-            background: '#ef4444',
+            background: pending?.id === a.id ? '#3b82f6' : '#ef4444',
             color: '#fff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 700,
-            pointerEvents: 'none',
+            cursor: 'pointer',
+            boxShadow: '0 2px 6px rgba(0,0,0,.3)',
+            border: '2px solid #fff',
+            transition: 'background 0.2s',
+            zIndex: pending?.id === a.id ? 2147483648 : 2147483647,
           }}
         >
           {i + 1}
         </div>
       ))}
 
-      {/* Comment box for the pending click */}
+      {/* Comment box for the pending click or editing */}
       {pending && (
         <div
           style={{
             ...panel,
-            top: Math.min(pending.y + 8, window.innerHeight - 180),
-            left: Math.min(pending.x + 8, window.innerWidth - 280),
-            width: 260,
-            background: '#fff',
+            ...glassStyle,
+            top: Math.min(pending.y + 12, window.innerHeight - 180),
+            left: Math.min(pending.x + 12, window.innerWidth - 280),
+            width: 280,
             color: '#111827',
-            border: '1px solid #e5e7eb',
-            borderRadius: 10,
-            padding: 12,
-            boxShadow: '0 8px 24px rgba(0,0,0,.2)',
+            borderRadius: 12,
+            padding: 14,
+            zIndex: 2147483649,
           }}
         >
-          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, wordBreak: 'break-all' }}>
             {pending.selector}
           </div>
           <textarea
@@ -266,43 +370,58 @@ export function AnnotationOverlay({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveComment();
-              if (e.key === 'Escape') setPending(null);
             }}
             placeholder={placeholder}
             style={{
               width: '100%',
-              minHeight: 60,
-              border: '1px solid #d1d5db',
-              borderRadius: 6,
-              padding: 6,
+              minHeight: 70,
+              background: 'rgba(255, 255, 255, 0.7)',
+              border: '1px solid rgba(209, 213, 219, 0.8)',
+              borderRadius: 8,
+              padding: 8,
               fontSize: 13,
               resize: 'vertical',
               boxSizing: 'border-box',
+              outline: 'none',
+              fontFamily: 'inherit',
             }}
           />
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <button
               onClick={saveComment}
               style={{
+                ...buttonStyle,
                 background: '#16a34a',
                 color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                padding: '6px 10px',
-                cursor: 'pointer',
+                padding: '6px 12px',
+                flex: 1,
               }}
             >
               Save
             </button>
+            {pending.id && (
+              <button
+                onClick={deleteComment}
+                style={{
+                  ...buttonStyle,
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  padding: '6px 12px',
+                }}
+              >
+                Delete
+              </button>
+            )}
             <button
-              onClick={() => setPending(null)}
+              onClick={() => {
+                setPending(null);
+                setDraft('');
+              }}
               style={{
-                background: '#f3f4f6',
-                color: '#111827',
-                border: 'none',
-                borderRadius: 6,
-                padding: '6px 10px',
-                cursor: 'pointer',
+                ...buttonStyle,
+                background: 'rgba(243, 244, 246, 0.8)',
+                color: '#374151',
+                padding: '6px 12px',
               }}
             >
               Cancel

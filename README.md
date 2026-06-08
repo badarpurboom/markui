@@ -1,4 +1,4 @@
-# react-annotate-overlay
+# markui
 
 Lightweight **visual feedback overlay** for any React app. Turn on annotate mode, **left-click** any element to mark it red, type what you want changed, and **copy all requests** as ready-to-paste text for your AI coding agent (Claude Code, Cursor, etc.).
 
@@ -7,7 +7,7 @@ No external dependencies. One component. Drop it in once.
 ## Install
 
 ```bash
-npm install react-annotate-overlay
+npm install markui
 ```
 
 > React 17+ is a peer dependency.

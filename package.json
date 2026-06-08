@@ -1,5 +1,5 @@
 {
-  "name": "react-annotate-overlay",
+  "name": "markui",
   "version": "0.1.0",
   "description": "Lightweight visual feedback overlay for React apps — left-click any element, mark it red, add a comment, and copy all requests for your AI coding agent.",
   "type": "module",
