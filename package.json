@@ -1,0 +1,44 @@
+{
+  "name": "react-annotate-overlay",
+  "version": "0.1.0",
+  "description": "Lightweight visual feedback overlay for React apps — left-click any element, mark it red, add a comment, and copy all requests for your AI coding agent.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "react",
+    "annotation",
+    "overlay",
+    "visual-feedback",
+    "ai-agent",
+    "ui-feedback"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=17",
+    "react-dom": ">=17"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.4.0"
+  }
+}
